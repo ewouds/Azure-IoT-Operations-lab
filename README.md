@@ -42,7 +42,19 @@ flowchart LR
     E --> F[Real-Time Dashboard]
 ```
 
-## Why This Lab Uses Codespaces
+## Runtime Options For This Lab
+
+This lab was originally written for GitHub Codespaces, but you can run it on your own Azure VM (IaaS) with the same Azure IoT Operations and Fabric flow.
+
+Recommended when Codespaces quota is exhausted:
+
+- Azure Ubuntu VM + VS Code Remote SSH (Option 1)
+
+Still supported:
+
+- GitHub Codespaces (official quickstart path)
+
+## Why Codespaces Was Used Initially
 
 Azure IoT Operations runs on Kubernetes and has more moving parts than an IoT Hub-only lab.
 
@@ -56,6 +68,8 @@ To reduce setup friction, this lab follows the official Microsoft quickstart pat
 
 This gives you a realistic Azure IoT Operations environment without first building your own AKS or local Linux cluster.
 
+With an Azure VM, you get a similar experience while controlling cost and uptime yourself.
+
 ## Prerequisites
 
 ### Azure
@@ -64,11 +78,16 @@ This gives you a realistic Azure IoT Operations environment without first buildi
 - Permission to create resource groups and role assignments
 - Permission to register Azure resource providers
 
-### GitHub and Local Tools
+### Local Tools
 
-- A GitHub account
 - Visual Studio Code installed locally
-- GitHub Codespaces extension in VS Code if prompted
+- Remote - SSH extension in VS Code
+- Azure CLI available either locally or in Azure Cloud Shell (for VM provisioning)
+
+### Optional
+
+- A GitHub account (only needed if you still want to use Codespaces)
+- GitHub Codespaces extension in VS Code
 
 ### Fabric
 
@@ -80,19 +99,91 @@ This gives you a realistic Azure IoT Operations environment without first buildi
 
 - Azure IoT Operations is not a lightweight free-tier service like IoT Hub F1
 - Codespaces is suitable for exploration, not for production or scale testing
-- Clean up the Azure resource group, Fabric items, and Codespace after the lab
+- For Azure VM usage, stop or deallocate the VM when not in use
+- Clean up the Azure resource group, Fabric items, and your host environment (Codespace or VM) after the lab
 
 ## End State
 
 At the end of the lab, you should have:
 
-- An Azure IoT Operations instance running on a Codespaces-hosted K3s cluster
+- An Azure IoT Operations instance running on a K3s cluster hosted in Codespaces or your Azure VM
 - An OPC PLC simulator producing emulated operational data
 - Azure IoT Operations assets and data flows configured from the sample deployment
 - An Azure Event Hubs namespace receiving the processed signals
 - A Fabric Eventstream and Eventhouse showing the same signals in RTI
 
-## Step 1: Create the Official Azure IoT Operations Codespace
+## Step 1: Prepare A Host Environment
+
+Choose one host environment for the Kubernetes and Azure IoT Operations setup.
+
+### Option 1 (Recommended): Azure VM (IaaS) + VS Code Remote SSH
+
+Create a small Ubuntu VM (for example, Standard_B2s), then connect from VS Code.
+
+Example VM creation (run locally or in Azure Cloud Shell):
+
+```bash
+export SUBSCRIPTION_ID=<subscription-id>
+export RESOURCE_GROUP=<resource-group>
+export LOCATION=<azure-region>
+export VM_NAME=<vm-name>
+export ADMIN_USERNAME=<admin-username>
+
+az account set --subscription $SUBSCRIPTION_ID
+az group create --name $RESOURCE_GROUP --location $LOCATION
+az vm create \
+    --resource-group $RESOURCE_GROUP \
+    --name $VM_NAME \
+    --image Ubuntu2204 \
+    --size Standard_B2s \
+    --admin-username $ADMIN_USERNAME \
+    --generate-ssh-keys
+```
+
+Connect:
+
+```bash
+ssh $ADMIN_USERNAME@<public-ip>
+```
+
+Install base tooling on the VM:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg lsb-release apt-transport-https git unzip jq
+
+# Docker
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker $USER
+
+# kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+rm kubectl
+
+# k3d
+curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+# Azure CLI
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+```
+
+Start a fresh shell (or sign out/in) after adding your user to the Docker group.
+
+Create the local K3s-in-k3d cluster used by the lab:
+
+```bash
+export CLUSTER_NAME=<cluster-name>
+k3d cluster create $CLUSTER_NAME
+kubectl get nodes
+```
+
+Then continue with Step 2 and run all remaining commands from your VM terminal.
+
+### Option 2: GitHub Codespaces (Original Quickstart)
 
 Use the official Microsoft sample Codespace:
 
@@ -110,7 +201,7 @@ Then open the Codespace in VS Code Desktop.
 
 ## Step 2: Sign In and Register Azure Providers
 
-Run these commands in the Codespace terminal.
+Run these commands in your host terminal (Azure VM terminal or Codespace terminal).
 
 ```bash
 az login
@@ -129,7 +220,7 @@ Create the resource group:
 az group create --location $LOCATION --resource-group $RESOURCE_GROUP
 ```
 
-## Step 3: Arc-Enable the Codespaces Cluster
+## Step 3: Arc-Enable the Cluster
 
 Connect the K3s cluster to Azure Arc:
 
@@ -384,7 +475,8 @@ az iot ops delete --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP
 
 If you want to remove everything:
 
-- Delete the Codespace
+- If you used Codespaces: delete the Codespace
+- If you used Azure VM: deallocate or delete the VM
 - Delete the Azure resource group
 - Delete the Fabric Eventstream, Eventhouse, and dashboard
 
